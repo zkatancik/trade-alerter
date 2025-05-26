@@ -4,6 +4,7 @@ namespace TradeAlerter.Domain.Models;
 
 public class Notice
 {
+    public int Id { get; set; }
     public Pipeline Pipeline { get; set; }
     public NoticeType Type { get; set; }
     public string Summary { get; set; }
