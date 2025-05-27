@@ -8,10 +8,44 @@ namespace TradeAlerter.Plugins.Scrapers;
 public sealed class AnrOptions
 {
     public Uri BaseUrl { get; init; } = new("https://ebb.anrpl.com");
-    public int PostedWindowDays { get; init; } = 31;
+    public int LookbackDays { get; init; } = 31;
 }
 public class AnrScraper : IScraper
 {
+    private static readonly Dictionary<string, NoticeType> _noticeTypeMap =
+        new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Auction Notice"]               = NoticeType.Critical,
+        ["Billing and Payment"]          = NoticeType.Informational,
+        ["Cap Rel"]                      = NoticeType.Informational,
+        ["Cash Out"]                     = NoticeType.Critical,
+        ["Computer Stat"]                = NoticeType.Informational,
+        ["Constraint"]                   = NoticeType.Critical,
+        ["Critical period"]              = NoticeType.Critical,
+        ["Emergency Deviations"]         = NoticeType.Critical,
+        ["Force Maj"]                    = NoticeType.Critical,
+        ["Gas Qual"]                     = NoticeType.Informational,
+        ["Imbal Trade"]                  = NoticeType.Informational,
+        ["Information Disclosures"]      = NoticeType.Informational,
+        ["Maint"]                        = NoticeType.Maintenance,
+        ["Message"]                      = NoticeType.Informational,
+        ["News"]                         = NoticeType.Informational,
+        ["OFO"]                          = NoticeType.Informational,
+        ["Oper Alert"]                   = NoticeType.Critical,
+        ["Other"]                        = NoticeType.Informational,
+        ["Ovr-Undr Perf"]                = NoticeType.Informational,
+        ["Phone"]                        = NoticeType.Informational,
+        ["Plnd Outage"]                  = NoticeType.PlannedOutage,
+        ["Rates - Chgs"]                 = NoticeType.Informational,
+        ["Sched Alert"]                  = NoticeType.Critical,
+        ["Storage"]                      = NoticeType.Critical,
+        ["Tariff Discretionary Actions"] = NoticeType.Informational,
+        ["TSP Cap Offer"]                = NoticeType.Informational,
+        ["Voluntary Consent"]            = NoticeType.Informational,
+        ["Waste Heat"]                   = NoticeType.WasteHeat,
+        ["Weather"]                      = NoticeType.Informational
+    };
+    
     private readonly HttpClient _httpClient;
     private readonly ILogger<AnrScraper> _logger;
     private readonly AnrOptions _options;

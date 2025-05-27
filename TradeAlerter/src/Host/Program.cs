@@ -28,7 +28,7 @@ public class Program
         var anrOptions = new AnrOptions
         {
             BaseUrl = new Uri(configuration["Pipelines:ANR:BaseUrl"] ?? "https://ebb.anrpl.com"),
-            PostedWindowDays = int.TryParse(configuration["Pipelines:ANR:LookbackDays"], out int days) ? days : 31
+            LookbackDays = int.TryParse(configuration["Pipelines:ANR:LookbackDays"], out int days) ? days : 31
         };
         
         var scraper = new AnrScraper(anrOptions, httpClient, logger);
