@@ -96,7 +96,10 @@ public class AnrScraper(AnrOptions options, HttpClient httpClient, ILogger<AnrSc
 
             foreach (var row in rows)
             {
-                var notice = new Notice();
+                var notice = new Notice
+                {
+                    Pipeline = Pipeline.ANR,
+                };
 
                 // Extract the detail link href
                 var detailLinkNode = row.SelectSingleNode(".//a[contains(@href,'NoticeView')]");
@@ -113,7 +116,29 @@ public class AnrScraper(AnrOptions options, HttpClient httpClient, ILogger<AnrSc
                         var noticeDoc = await FetchNoticeDetailsAsync(detailUrl);
                         if (noticeDoc != null)
                         {
+                            try
+                            {
+                                notice.Id = int.Parse(ExtractCellValue(noticeDoc, "Notice ID") ?? "-1");
+                            }
+                            catch (Exception ex)
+                            {
+                                logger.LogWarning(ex, "Failed to parse notice ID from details page.");
+                            }
+
                             notice.Type = ParseNoticeTypeFromDetails(noticeDoc);
+                            notice.Summary = ExtractCellValue(noticeDoc, "Subject") ?? string.Empty;
+                            // TODO: Extract location from subject/notice text
+                            // TODO: Extract curtailment volume from notice text
+                            try
+                            {
+                                notice.TimeStamp =
+                                    DateTimeOffset.Parse(ExtractCellValue(noticeDoc, "Posting Date/Time") ??
+                                                         "1/1/1900");
+                            }
+                            catch (Exception ex)
+                            {
+                                logger.LogWarning(ex, "Failed to parse posting date/time from details page.");
+                            }
                         }
                     }
                     else
@@ -188,7 +213,8 @@ public class AnrScraper(AnrOptions options, HttpClient httpClient, ILogger<AnrSc
             {
                 logger.LogInformation("Extracted null value for {Category} from details page.", category);
             }
-            
+
+            logger.LogTrace("Extracted value for {Category}: {Value}", category, value);
             return value;
         }
         catch
