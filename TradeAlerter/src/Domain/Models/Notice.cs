@@ -59,11 +59,12 @@ public class Notice
         var result = "Unknown";
 
         // Headlines like "CAPACITY REDUCTION Southeast Mainline – Cottage Grove Southbound"
+        // Also handles "LIFTED: CAPACITY REDUCTION..." and "UPDATED: CAPACITY REDUCTION..."
         _logger?.LogTrace("Attempting to match event marker patterns");
         foreach (var marker in EventMarkers)
         {
-            var pattern =
-                $@"{Regex.Escape(marker)}[\s:\-–—]+(.+?)(?:\s*\((?:Posted|Updated|Effective|Supersede)[:)]|$|\r?\n|\.|\s+\d{{1,2}}/\d{{1,2}}/\d{{4}})";
+            // Pattern handles optional LIFTED:/UPDATED: prefixes and various suffix patterns
+            var pattern = $@"(?:(?:LIFTED|UPDATED):\s+)?{Regex.Escape(marker)}[\s:\-–—]+(.+?)(?:\s*\((?:Posted|Updated|Effective|Supersede|Lifted)[:)]|$|\r?\n|\.|\s+\d{{1,2}}/\d{{1,2}}/\d{{4}})";
             var match = Regex.Match(FullText, pattern, RegexOptions.IgnoreCase);
             if (match.Success && !string.IsNullOrWhiteSpace(match.Groups[1].Value))
             {
@@ -72,6 +73,17 @@ public class Notice
                     result, marker);
                 goto ParseComplete;
             }
+        }
+
+        // Special case for "NOTICE OF FORCE MAJEURE" patterns
+        _logger?.LogTrace("Attempting to match Force Majeure patterns");
+        var forceMajeurePattern = @"(?:(?:LIFTED|UPDATED):\s+)?NOTICE\s+OF\s+FORCE\s+MAJEURE[\s:\-–—]+(.+?)(?:\s*\((?:Posted|Updated|Effective|Supersede|Lifted)[:)]|$|\r?\n|\.|\s+\d{1,2}/\d{1,2}/\d{4})";
+        var forceMajeureMatch = Regex.Match(FullText, forceMajeurePattern, RegexOptions.IgnoreCase);
+        if (forceMajeureMatch.Success && !string.IsNullOrWhiteSpace(forceMajeureMatch.Groups[1].Value))
+        {
+            result = CleanLocation(forceMajeureMatch.Groups[1].Value);
+            _logger?.LogTrace("Found Force Majeure location: '{Location}'", result);
+            goto ParseComplete;
         }
 
         _logger?.LogTrace("No event marker patterns matched");
@@ -131,7 +143,7 @@ public class Notice
         return result;
     }
 
-    private static string CleanLocation(string raw)
+    private string CleanLocation(string raw)
     {
         // Return "Unknown" if this looks like an email address or contact info
         if (Regex.IsMatch(raw, @"@\w+\.\w+|email|contact|phone|\d{3}[-.\s]?\d{3}[-.\s]?\d{4}", RegexOptions.IgnoreCase))
@@ -176,6 +188,75 @@ public class Notice
         if (string.IsNullOrWhiteSpace(FullText))
             return null;
 
-        return null;
+        _logger?.LogTrace("Starting curtailment volume parsing for Notice ID: {NoticeId}", Id);
+
+        decimal? result = null;
+
+        // "X MMcf/d (leaving Y MMcf/d)" - we want X (the curtailment amount)
+        _logger?.LogTrace("Attempting to match curtailment pattern");
+        var curtailmentPattern = @"(\d+(?:\.\d+)?)\s*MMcf/d\s*\(leaving\s+\d+(?:\.\d+)?\s*MMcf/d\)";
+        var curtailmentMatch = Regex.Match(FullText, curtailmentPattern, RegexOptions.IgnoreCase);
+        if (curtailmentMatch.Success && decimal.TryParse(curtailmentMatch.Groups[1].Value, out var curtailmentVolume))
+        {
+            result = curtailmentVolume;
+            _logger?.LogTrace("Found curtailment pattern volume: {Volume} MMcf/d", curtailmentVolume);
+            goto ParseComplete;
+        }
+
+        // "capped at X MMcf/d" or "restricted to X MMcf/d" - X is the current allowed flow
+        _logger?.LogTrace("Attempting to match capped/restricted pattern");
+        var cappedPattern = @"(?:capped|restricted)\s+(?:at|to)\s+(\d+(?:\.\d+)?)\s*MMcf/d";
+        var cappedMatch = Regex.Match(FullText, cappedPattern, RegexOptions.IgnoreCase);
+        if (cappedMatch.Success && decimal.TryParse(cappedMatch.Groups[1].Value, out var cappedVolume))
+        {
+            result = cappedVolume;
+            _logger?.LogTrace("Found capped pattern volume: {Volume} MMcf/d", cappedVolume);
+            goto ParseComplete;
+        }
+
+        // General "X MMcf/d" but exclude reduction amounts and remaining capacity
+        _logger?.LogTrace("Attempting to match general MMcf/d pattern");
+        var generalPattern = @"(\d+(?:\.\d+)?)\s*MMcf/d";
+        var generalMatches = Regex.Matches(FullText, generalPattern, RegexOptions.IgnoreCase);
+        foreach (Match match in generalMatches)
+        {
+            // Get the context around the match to check for remaining capacity or reduction amounts
+            var context = FullText.Substring(Math.Max(0, match.Index - 20), 
+                Math.Min(FullText.Length - Math.Max(0, match.Index - 20), match.Length + 40));
+            
+            // Skip if this is part of a "leaving X MMcf/d" pattern (remaining capacity)
+            if (Regex.IsMatch(context, @"leaving\s+\d+(?:\.\d+)?\s*MMcf/d", RegexOptions.IgnoreCase))
+                continue;
+                
+            // Skip if this is part of a "reduced by X MMcf/d" pattern (reduction amount, not current flow)
+            if (Regex.IsMatch(context, @"(?:reduced\s+by|reduction\s+of)\s+\d+(?:\.\d+)?\s*MMcf/d", RegexOptions.IgnoreCase))
+                continue;
+
+            // If we get here, we have a valid MMcf/d volume
+            if (decimal.TryParse(match.Groups[1].Value, out var generalVolume))
+            {
+                result = generalVolume;
+                _logger?.LogTrace("Found general pattern volume: {Volume} MMcf/d", generalVolume);
+                goto ParseComplete;
+            }
+        }
+
+        _logger?.LogTrace("No MMcf/d patterns matched");
+
+        ParseComplete:
+        if (result == null)
+        {
+            _logger?.LogTrace("No curtailment volume found for Notice ID: {NoticeId}", Id);
+            return null;
+        }
+
+        // Convert MMcf/d to MMBtu/d (approximation for natural gas)
+        // 1 MMcf ≈ 1.037 MMBtu for typical pipeline-quality natural gas.
+        var volumeInMmbtu = result.Value * 1.037m;
+
+        _logger?.LogTrace("Successfully parsed curtailment volume: {Volume} MMcf/d ({VolumeMmbtu} MMbtu/d) for Notice ID: {NoticeId}", 
+            result.Value, volumeInMmbtu, Id);
+
+        return volumeInMmbtu;
     }
 }
