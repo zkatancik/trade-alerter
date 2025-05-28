@@ -2,13 +2,14 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Configuration;
 using TradeAlerter.Plugins.Scrapers;
 using System;
+using System.Diagnostics;
 using System.IO;
 
 namespace TradeAlerter.Host;
 
 public class Program
 {
-    public static void Main(string[] args)
+    public static async Task Main(string[] args)
     {
         var configuration = new ConfigurationBuilder()
             .SetBasePath(Directory.GetCurrentDirectory())
@@ -32,6 +33,7 @@ public class Program
         };
 
         var scraper = new AnrScraper(anrOptions, httpClient, logger);
-        scraper.FetchNoticeAsync().Wait();
+        var notices = await scraper.FetchNoticeAsync();
+        Debugger.Break();
     }
 }

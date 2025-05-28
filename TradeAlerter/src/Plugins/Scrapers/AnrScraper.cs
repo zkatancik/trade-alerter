@@ -96,21 +96,20 @@ public class AnrScraper(AnrOptions options, HttpClient httpClient, ILogger<AnrSc
 
             foreach (var row in rows)
             {
-                var notice = new Notice
-                {
-                    Pipeline = Pipeline.ANR,
-                };
-
                 // Extract the detail link href
                 var detailLinkNode = row.SelectSingleNode(".//a[contains(@href,'NoticeView')]");
                 if (detailLinkNode != null)
                 {
                     var href = detailLinkNode.GetAttributeValue("href", "");
                     var detailUrl = new Uri(options.BaseUrl, href);
-                    notice.Link = detailUrl;
-
                     if (!string.IsNullOrEmpty(href))
                     {
+                        var notice = new Notice
+                        {
+                            Pipeline = Pipeline.ANR,
+                            Link = detailUrl
+                        };
+                        
                         // Fetch the details for this notice by going to it's notice page
                         // ie: https://ebb.anrpl.com/Notices/NoticeView.asp?sPipelineCode=ANR&sSubCategory=ALL&sNoticeId=12372
                         var noticeDoc = await FetchNoticeDetailsAsync(detailUrl);
@@ -127,8 +126,9 @@ public class AnrScraper(AnrOptions options, HttpClient httpClient, ILogger<AnrSc
 
                             notice.Type = ParseNoticeTypeFromDetails(noticeDoc);
                             notice.Summary = ExtractCellValue(noticeDoc, "Subject") ?? string.Empty;
-                            // TODO: Extract location from subject/notice text
-                            // TODO: Extract curtailment volume from notice text
+                            notice.FullText = ExtractCellValue(noticeDoc, "Notice Text") ?? string.Empty;
+                            notice.ParseTextDetails(logger);
+                            
                             try
                             {
                                 notice.TimeStamp =
@@ -140,18 +140,18 @@ public class AnrScraper(AnrOptions options, HttpClient httpClient, ILogger<AnrSc
                                 logger.LogWarning(ex, "Failed to parse posting date/time from details page.");
                             }
                         }
+                        
+                        notices.Add(notice);
                     }
                     else
                     {
-                        logger.LogWarning("Failed to extract notice details link from row: {row}", row);
+                        logger.LogError("Failed to extract notice details link from row: {row}", row);
                     }
                 }
                 else
                 {
-                    logger.LogWarning("Failed to extract href from row: {row}", row);
+                    logger.LogError("Failed to extract href from row: {row}", row);
                 }
-
-                notices.Add(notice);
             }
 
             return notices;
