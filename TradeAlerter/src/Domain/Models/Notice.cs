@@ -7,11 +7,11 @@ public class Notice
     public int Id { get; set; }
     public Pipeline Pipeline { get; set; }
     public NoticeType Type { get; set; }
-    public required string Summary { get; set; }
+    public string Summary { get; set; } = string.Empty;
     public string Location { get; set; } = "Unknown";
     public DateTimeOffset TimeStamp { get; set; }
     public decimal? CurtailmentVolumeDth { get; set; }
-    public required Uri Link { get; set; }
+    public Uri Link { get; set; } = null!;
     
     public bool IsRelevant => 
         Type == NoticeType.Critical

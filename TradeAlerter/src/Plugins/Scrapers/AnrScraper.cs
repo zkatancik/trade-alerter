@@ -106,18 +106,32 @@ public class AnrScraper : IScraper
             foreach (var row in rows)
             {
                 // Extract the detail link href
-                var detailLink = row.SelectSingleNode(".//a[contains(@href,'NoticeView')]");
-                if (detailLink != null)
+                var detailLinkNode = row.SelectSingleNode(".//a[contains(@href,'NoticeView')]");
+                if (detailLinkNode != null)
                 {
-                    var href = detailLink.GetAttributeValue("href", "");
+                    var notice = new Notice();
+                    var href = detailLinkNode.GetAttributeValue("href", "");
+                    var detailUrl = new Uri(_options.BaseUrl, href);
+                    notice.Link = detailUrl;
+
                     if (!string.IsNullOrEmpty(href))
                     {
-                        _logger.LogInformation($"Fetching details from link: {href}");
-
                         // Fetch the details for this notice by going to it's notice page
                         // ie: https://ebb.anrpl.com/Notices/NoticeView.asp?sPipelineCode=ANR&sSubCategory=ALL&sNoticeId=12372
-                        await FetchNoticeDetailsAsync(href);
+                        var noticeDoc = await FetchNoticeDetailsAsync(detailUrl);
+                        if (noticeDoc != null)
+                        {
+                            
+                        }
                     }
+                    else
+                    {
+                        _logger.LogWarning("Failed to extract notice details link from row: {row}", row);
+                    }
+                }
+                else
+                {
+                    _logger.LogWarning("Failed to extract href from row: {row}", row);
                 }
             }
 
@@ -133,29 +147,30 @@ public class AnrScraper : IScraper
     /// <summary>
     /// Fetches detailed information for a specific notice by visiting its detail page.
     /// </summary>
-    /// <param name="relativeUrl">The relative URL to the notice details page</param>
-    private async Task FetchNoticeDetailsAsync(string relativeUrl)
+    /// <param name="detailsUrl">The URL to the notice details page</param>
+    /// <returns>The parsed HTML document of the notice details page</returns>
+    private async Task<HtmlDocument?> FetchNoticeDetailsAsync(Uri detailsUrl)
     {
+        var detailUrlString = detailsUrl.ToString();
         try
         {
-            var detailUrl = new Uri(_options.BaseUrl, relativeUrl).ToString();
+            _logger.LogTrace($"Fetching notice details from: {detailUrlString}");
 
-            _logger.LogInformation($"Fetching notice details from: {detailUrl}");
-
-            var response = await _httpClient.GetAsync(detailUrl);
+            var response = await _httpClient.GetAsync(detailUrlString);
             response.EnsureSuccessStatusCode();
 
             var html = await response.Content.ReadAsStringAsync();
             var doc = new HtmlDocument();
             doc.LoadHtml(html);
 
-            // TODO: Parse specific fields from the details page
-            _logger.LogInformation($"Notice details HTML length: {html.Length}");
-            _logger.LogInformation($"Successfully fetched details from: {relativeUrl}");
+            _logger.LogTrace($"Successfully fetched details from: {detailUrlString}");
+
+            return doc;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"Failed to fetch details from: {relativeUrl}");
+            _logger.LogWarning(ex, $"Failed to fetch details from: {detailUrlString}");
+            return null;
         }
     }
 }
