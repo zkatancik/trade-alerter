@@ -6,6 +6,18 @@ namespace TradeAlerter.Domain.Models;
 
 public class Notice
 {
+    private static readonly string[] EventMarkers =
+    [
+        "CAPACITY REDUCTION",
+        "FORCE MAJEURE",
+        "CURTAILMENT",
+        "OUTAGE",
+        "EMERGENCY",
+        "MAINTENANCE",
+        "OPERATIONAL ALERT",
+        "CONSTRAINT"
+    ];
+
     private ILogger? _logger;
     public int Id { get; set; }
     public Pipeline Pipeline { get; set; }
@@ -37,59 +49,21 @@ public class Notice
         CurtailmentVolumeDth = ParseCurtailmentVolume();
     }
 
-    // Common event markers used in ANR & other EBBs
-    private static readonly string[] EventMarkers =
-    [
-        "CAPACITY REDUCTION",
-        "FORCE MAJEURE",
-        "CURTAILMENT",
-        "OUTAGE",
-        "EMERGENCY",
-        "MAINTENANCE",
-        "OPERATIONAL ALERT",
-        "CONSTRAINT"
-    ];
-
     /// <summary>
-    /// Extracts location information from the FullText and Summary.
+    /// Extracts location information from the FullText in order of most likely to parse.
     /// </summary>
     private string ParseLocation()
     {
         _logger?.LogTrace("Starting location parsing for Notice ID: {NoticeId}", Id);
 
         var result = "Unknown";
-        var sources = new[] { Summary, FullText };
-
-        foreach (var text in sources)
-        {
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                _logger?.LogTrace("Skipping empty text source");
-                continue;
-            }
-            
-            // Match against the ANR location names in ANR's provided CSV
-            _logger?.LogTrace("Attempting to match against ANR CSV location names");
-            foreach (var loc in AnrCsvLocationSet.Names)
-            {
-                var pattern = $@"\b{Regex.Escape(loc)}\b";
-                if (Regex.IsMatch(text, pattern, RegexOptions.IgnoreCase))
-                {
-                    result = loc;
-                    _logger?.LogTrace("Found ANR CSV location match: '{Location}' in text: '{TextSnippet}'",
-                        loc, text.Length > 100 ? text.Substring(0, 100) + "..." : text);
-                    goto ParseComplete;
-                }
-            }
-        }
-
-        _logger?.LogTrace("No ANR CSV location matches found");
 
         // Headlines like "CAPACITY REDUCTION Southeast Mainline – Cottage Grove Southbound"
         _logger?.LogTrace("Attempting to match event marker patterns");
         foreach (var marker in EventMarkers)
         {
-            var pattern = $@"{Regex.Escape(marker)}[\s:\-–—]+(.+?)(\r?\n|$|\.)";
+            var pattern =
+                $@"{Regex.Escape(marker)}[\s:\-–—]+(.+?)(?:\s*\((?:Posted|Updated|Effective|Supersede)[:)]|$|\r?\n|\.|\s+\d{{1,2}}/\d{{1,2}}/\d{{4}})";
             var match = Regex.Match(FullText, pattern, RegexOptions.IgnoreCase);
             if (match.Success && !string.IsNullOrWhiteSpace(match.Groups[1].Value))
             {
@@ -101,6 +75,22 @@ public class Notice
         }
 
         _logger?.LogTrace("No event marker patterns matched");
+        
+        // Match against the ANR location names in ANR's provided CSV
+        _logger?.LogTrace("Attempting to match against ANR CSV location names");
+        foreach (var loc in AnrCsvLocationSet.Names)
+        {
+            var pattern = $@"\b{Regex.Escape(loc)}\b";
+            if (Regex.IsMatch(FullText, pattern, RegexOptions.IgnoreCase))
+            {
+                result = loc;
+                _logger?.LogTrace("Found ANR CSV location match: '{Location}' in text: '{TextSnippet}'",
+                    loc, FullText.Length > 100 ? FullText.Substring(0, 100) + "..." : FullText);
+                goto ParseComplete;
+            }
+        }
+
+        _logger?.LogTrace("No ANR CSV location matches found");
 
         // Segment / Zone / Station tokens
         _logger?.LogTrace("Attempting to match structured patterns (Segment/Zone/Point/Station/Location)");
@@ -125,7 +115,7 @@ public class Notice
         }
 
         _logger?.LogTrace("No structured patterns matched");
-        
+
         ParseComplete:
         if (result == "Unknown")
         {
@@ -143,11 +133,39 @@ public class Notice
 
     private static string CleanLocation(string raw)
     {
+        // Return "Unknown" if this looks like an email address or contact info
+        if (Regex.IsMatch(raw, @"@\w+\.\w+|email|contact|phone|\d{3}[-.\s]?\d{3}[-.\s]?\d{4}", RegexOptions.IgnoreCase))
+        {
+            return "Unknown";
+        }
+
+        // Return "Unknown" if this looks like administrative/service content
+        if (Regex.IsMatch(raw,
+                @"(after.?hours|on.?call|hotline|customer\s+service|commercial\s+services|contacts?|marketing|contracts?|security)",
+                RegexOptions.IgnoreCase))
+        {
+            return "Unknown";
+        }
+
         // Strip trailing boiler-plate words & punctuation
-        raw = Regex.Replace(raw, @"\s*(scheduled|begins|ends|effective).*?$", "",
+        raw = Regex.Replace(raw,
+            @"\s*(scheduled|begins|ends|effective|posted|please|customers?|for\s+\d{1,2}/\d{1,2}/\d{4}).*?$", "",
             RegexOptions.IgnoreCase);
-        
-        return raw.Trim(' ', '-', ':');
+
+        // Remove common non-location patterns
+        raw = Regex.Replace(raw, @"\s*(maintenance|pipe|gas|control|noms|scheduling):\s*.*$", "",
+            RegexOptions.IgnoreCase);
+
+        var result = raw.Trim(' ', '-', ':', ',', '.');
+
+        // Return "Unknown" if result is too short or looks like a date/time
+        if (result.Length < 3 ||
+            Regex.IsMatch(result, @"^\d{1,2}/\d{1,2}/\d{4}|\d{1,2}:\d{2}$", RegexOptions.IgnoreCase))
+        {
+            return "Unknown";
+        }
+
+        return result;
     }
 
     /// <summary>
