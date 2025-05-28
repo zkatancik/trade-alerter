@@ -148,7 +148,7 @@ public class AnrScraper(AnrOptions options, HttpClient httpClient, ILogger<AnrSc
         var detailUrlString = detailsUrl.ToString();
         try
         {
-            logger.LogTrace($"Fetching notice details from: {detailUrlString}");
+            logger.LogTrace("Fetching notice details from: {DetailUrlString}", detailUrlString);
 
             var response = await httpClient.GetAsync(detailUrlString);
             response.EnsureSuccessStatusCode();
@@ -157,13 +157,43 @@ public class AnrScraper(AnrOptions options, HttpClient httpClient, ILogger<AnrSc
             var doc = new HtmlDocument();
             doc.LoadHtml(html);
 
-            logger.LogTrace($"Successfully fetched details from: {detailUrlString}");
+            logger.LogTrace("Successfully fetched details from: {DetailUrlString}", detailUrlString);
 
             return doc;
         }
         catch (Exception ex)
         {
             logger.LogWarning(ex, $"Failed to fetch details from: {detailUrlString}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Generic helper method to extract the text from the details page table.
+    /// </summary>
+    /// <param name="doc">The details HTML document to search</param>
+    /// <param name="category">The category text to look for in the first cell (e.g., "Notice Type Desc", "Posting Date/Time")</param>
+    /// <returns>The trimmed text content of the second cell, or null if not found</returns>
+    private string? ExtractCellValue(HtmlDocument doc, string category)
+    {
+        try
+        {
+            var row = doc.DocumentNode
+                .SelectSingleNode($"//tr[td[1][contains(., '{category}')]]");
+
+            var cell = row?.SelectSingleNode("td[2]");
+            var value = cell?.InnerText.Trim();
+
+            if (value == null)
+            {
+                logger.LogInformation("Extracted null value for {Category} from details page.", category);
+            }
+            
+            return value;
+        }
+        catch
+        {
+            logger.LogWarning("Unable to extract value for {Category} from details page.", category);
             return null;
         }
     }
@@ -179,26 +209,19 @@ public class AnrScraper(AnrOptions options, HttpClient httpClient, ILogger<AnrSc
 
         try
         {
-            var noticeTypeRow = doc.DocumentNode
-                .SelectSingleNode("//tr[td[1][contains(., 'Notice Type Desc:')]]");
-
-            var noticeTypeCell = noticeTypeRow?.SelectSingleNode("td[2]");
-            if (noticeTypeCell != null)
+            var noticeTypeText = ExtractCellValue(doc, "Notice Type Desc");
+            if (!string.IsNullOrEmpty(noticeTypeText))
             {
-                var noticeTypeText = noticeTypeCell.InnerText.Trim();
-                if (!string.IsNullOrEmpty(noticeTypeText))
-                {
-                    logger.LogTrace("Found notice type: {NoticeType}", noticeTypeText);
+                logger.LogTrace("Found notice type: {NoticeType}", noticeTypeText);
 
-                    if (NoticeTypeMap.TryGetValue(noticeTypeText, out var noticeType))
-                    {
-                        result = noticeType;
-                    }
-                    else
-                    {
-                        logger.LogWarning("Unknown notice type: {NoticeType}. Defaulting to Informational.",
-                            noticeTypeText);
-                    }
+                if (NoticeTypeMap.TryGetValue(noticeTypeText, out var noticeType))
+                {
+                    result = noticeType;
+                }
+                else
+                {
+                    logger.LogWarning("Unknown notice type: {NoticeType}. Defaulting to Informational.",
+                        noticeTypeText);
                 }
             }
             else
