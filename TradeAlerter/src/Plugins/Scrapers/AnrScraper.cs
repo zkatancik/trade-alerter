@@ -68,20 +68,44 @@ public class AnrScraper : IScraper
     {
         try
         {
-            var html = await _httpClient.GetStringAsync(
-                $"{_options.BaseUrl}/Notices/NoticesSearch.asp?sPipelineCode=ANR");
+            // Calculate the "from" date based on LookbackDays
+            var fromDate = DateTime.Now.AddDays(-_options.LookbackDays);
+            var fromDateString = fromDate.ToString("MM/dd/yyyy");
+            
+            var formData = new List<KeyValuePair<string, string>>
+            {
+                new("sPipelineCode", "ANR"),
+                new("frmQueryMode", "1"),
+                new("frmNoticeType", ""),
+                new("frmNoticeInd", "ALL"),
+                new("frmNoticeID", "<ALL>"),
+                new("frmNoticeStartDate", fromDateString),
+                new("frmNoticeEndDate", "<ALL>"),
+                new("frmSubject", "<ALL>"),
+                new("B1", "Retrieve")
+            };
+            
+            var formContent = new FormUrlEncodedContent(formData);
+            
+            // POST to the search endpoint
+            var response = await _httpClient.PostAsync(
+                $"{_options.BaseUrl}/Notices/NoticesSearch.asp?sPipelineCode=ANR",
+                formContent);
+            
+            response.EnsureSuccessStatusCode();
+            var html = await response.Content.ReadAsStringAsync();
             
             var doc  = new HtmlDocument(); 
             doc.LoadHtml(html);
             var rows = doc.DocumentNode.SelectNodes(
-                           "//tr[td/a[contains(@href,'NoticeView')]]") 
+                           "//tr[td//a[contains(@href,'NoticeView')]]") 
                        ?? Enumerable.Empty<HtmlNode>();
             
             var notices = new List<Notice>();
 
             foreach (var row in rows)
             {
-                Console.WriteLine(row.InnerHtml);
+                _logger.LogInformation(row.InnerHtml);
             }
             
             return notices;
