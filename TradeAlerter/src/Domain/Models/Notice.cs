@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using System.Linq;
 using Microsoft.Extensions.Logging;
 using TradeAlerter.Domain.Utilities;
 
@@ -29,11 +30,64 @@ public class Notice
     public decimal? CurtailmentVolumeDth { get; set; }
     public Uri Link { get; set; } = null!;
 
-    public bool IsRelevant =>
-        Type == NoticeType.Critical
-        || TimeStamp >= DateTimeOffset.UtcNow.AddDays(-3)
-        || Regex.IsMatch(Summary, "(force majeure|outage|curtailment)", RegexOptions.IgnoreCase)
-        || Regex.IsMatch(Location, "(louisiana|henry hub)", RegexOptions.IgnoreCase);
+    // Trading signal detection based on business requirements
+    public bool IsRelevant
+    {
+        get
+        {
+            // Check if notice is within the last 3 days
+            if (TimeStamp > DateTimeOffset.Now.AddDays(-3))
+                return true;
+
+            // Check for critical, maintenance or planned outage types
+            if (Type == NoticeType.Critical || Type == NoticeType.PlannedOutage || Type == NoticeType.Maintenance)
+                return true;
+            
+            // Check for curtailment volume in the notice
+            var hasCurtailmentVolume = CurtailmentVolumeDth.HasValue && CurtailmentVolumeDth.Value > 0;
+            if (hasCurtailmentVolume)
+                return true;
+
+            // Check for relevant keywords in title/summary or full text
+            var textToCheck = $"{Summary} {FullText}".ToLowerInvariant();
+            var tradingSignalKeywords = new[]
+            {
+                "force majeure",
+                "outage", 
+                "curtailment",
+            };
+
+            var hasRelevantKeywords = tradingSignalKeywords.Any(keyword => 
+                textToCheck.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+            if (hasRelevantKeywords)
+                return true;
+            
+            // https://en.wikipedia.org/wiki/Henry_Hub
+            var locationMentions = new[]
+            {
+                "louisiana",
+                "acadian",
+                "columbia gulf transmission",
+                "gulf south",
+                "bridgeline",
+                "ngpl",
+                "sea robin",
+                "southern natural",
+                "texas gas",
+                "transcontinental",
+                "trunkline",
+                "jefferson island",
+                "sabine"
+            };
+
+            var hasLocationMatch = locationMentions.Any(location =>
+                textToCheck.Contains(location, StringComparison.OrdinalIgnoreCase) ||
+                Location.Contains(location, StringComparison.OrdinalIgnoreCase));
+            
+            // can be clever here and return this bool since it's the last check
+            return hasLocationMatch;
+        }
+    }
 
     /// <summary>
     /// Parses and populates Location and CurtailmentVolumeDth from the FullText property.
