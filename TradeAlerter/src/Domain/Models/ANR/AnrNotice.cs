@@ -1,11 +1,10 @@
 using System.Text.RegularExpressions;
-using System.Linq;
 using Microsoft.Extensions.Logging;
 using TradeAlerter.Domain.Utilities;
 
 namespace TradeAlerter.Domain.Models;
 
-public class Notice
+public class AnrNotice : INotice
 {
     private static readonly string[] EventMarkers =
     [
@@ -30,7 +29,7 @@ public class Notice
     public decimal? CurtailmentVolumeDth { get; set; }
     public Uri Link { get; set; } = null!;
 
-    // Trading signal detection based on business requirements
+    // ANR-specific trading signal detection based on business requirements
     public bool IsRelevant
     {
         get
@@ -42,7 +41,7 @@ public class Notice
             // Check for critical, maintenance or planned outage types
             if (Type == NoticeType.Critical || Type == NoticeType.PlannedOutage || Type == NoticeType.Maintenance)
                 return true;
-            
+
             // Check for curtailment volume in the notice
             var hasCurtailmentVolume = CurtailmentVolumeDth.HasValue && CurtailmentVolumeDth.Value > 0;
             if (hasCurtailmentVolume)
@@ -53,19 +52,20 @@ public class Notice
             var tradingSignalKeywords = new[]
             {
                 "force majeure",
-                "outage", 
+                "outage",
                 "curtailment",
             };
 
-            var hasRelevantKeywords = tradingSignalKeywords.Any(keyword => 
+            var hasRelevantKeywords = tradingSignalKeywords.Any(keyword =>
                 textToCheck.Contains(keyword, StringComparison.OrdinalIgnoreCase));
             if (hasRelevantKeywords)
                 return true;
-            
-            // https://en.wikipedia.org/wiki/Henry_Hub
+
+            // ANR-specific: https://en.wikipedia.org/wiki/Henry_Hub
             var locationMentions = new[]
             {
                 "louisiana",
+                "zone 1", // per AnrLocationData.csv for Louisiana
                 "acadian",
                 "columbia gulf transmission",
                 "gulf south",
@@ -83,14 +83,14 @@ public class Notice
             var hasLocationMatch = locationMentions.Any(location =>
                 textToCheck.Contains(location, StringComparison.OrdinalIgnoreCase) ||
                 Location.Contains(location, StringComparison.OrdinalIgnoreCase));
-            
+
             // can be clever here and return this bool since it's the last check
             return hasLocationMatch;
         }
     }
 
     /// <summary>
-    /// Parses and populates Location and CurtailmentVolumeDth from the FullText property.
+    /// ANR-specific parsing: Populates Location and CurtailmentVolumeDth from the FullText property.
     /// Should be called after FullText is populated.
     /// </summary>
     public void ParseTextDetails(ILogger logger)
@@ -104,11 +104,11 @@ public class Notice
     }
 
     /// <summary>
-    /// Extracts location information from the FullText in order of most likely to parse.
+    /// ANR-specific: Extracts location information from the FullText in order of most likely to parse.
     /// </summary>
     private string ParseLocation()
     {
-        _logger?.LogTrace("Starting location parsing for Notice ID: {NoticeId}", Id);
+        _logger?.LogTrace("Starting ANR location parsing for Notice ID: {NoticeId}", Id);
 
         var result = "Unknown";
 
@@ -118,7 +118,8 @@ public class Notice
         foreach (var marker in EventMarkers)
         {
             // Pattern handles optional LIFTED:/UPDATED: prefixes and various suffix patterns
-            var pattern = $@"(?:(?:LIFTED|UPDATED):\s+)?{Regex.Escape(marker)}[\s:\-–—]+(.+?)(?:\s*\((?:Posted|Updated|Effective|Supersede|Lifted)[:)]|$|\r?\n|\.|\s+\d{{1,2}}/\d{{1,2}}/\d{{4}})";
+            var pattern =
+                $@"(?:(?:LIFTED|UPDATED):\s+)?{Regex.Escape(marker)}[\s:\-–—]+(.+?)(?:\s*\((?:Posted|Updated|Effective|Supersede|Lifted)[:)]|$|\r?\n|\.|\s+\d{{1,2}}/\d{{1,2}}/\d{{4}})";
             var match = Regex.Match(FullText, pattern, RegexOptions.IgnoreCase);
             if (match.Success && !string.IsNullOrWhiteSpace(match.Groups[1].Value))
             {
@@ -131,7 +132,8 @@ public class Notice
 
         // Special case for "NOTICE OF FORCE MAJEURE" patterns
         _logger?.LogTrace("Attempting to match Force Majeure patterns");
-        var forceMajeurePattern = @"(?:(?:LIFTED|UPDATED):\s+)?NOTICE\s+OF\s+FORCE\s+MAJEURE[\s:\-–—]+(.+?)(?:\s*\((?:Posted|Updated|Effective|Supersede|Lifted)[:)]|$|\r?\n|\.|\s+\d{1,2}/\d{1,2}/\d{4})";
+        var forceMajeurePattern =
+            @"(?:(?:LIFTED|UPDATED):\s+)?NOTICE\s+OF\s+FORCE\s+MAJEURE[\s:\-–—]+(.+?)(?:\s*\((?:Posted|Updated|Effective|Supersede|Lifted)[:)]|$|\r?\n|\.|\s+\d{1,2}/\d{1,2}/\d{4})";
         var forceMajeureMatch = Regex.Match(FullText, forceMajeurePattern, RegexOptions.IgnoreCase);
         if (forceMajeureMatch.Success && !string.IsNullOrWhiteSpace(forceMajeureMatch.Groups[1].Value))
         {
@@ -141,7 +143,7 @@ public class Notice
         }
 
         _logger?.LogTrace("No event marker patterns matched");
-        
+
         // Match against the ANR location names in ANR's provided CSV
         _logger?.LogTrace("Attempting to match against ANR CSV location names");
         foreach (var loc in AnrCsvLocationSet.Names)
@@ -186,12 +188,12 @@ public class Notice
         if (result == "Unknown")
         {
             // womp womp
-            _logger?.LogInformation("Failed to parse location from Notice ID: {NoticeId}. Summary: '{Summary}'",
+            _logger?.LogInformation("Failed to parse location from ANR Notice ID: {NoticeId}. Summary: '{Summary}'",
                 Id, Summary);
         }
         else
         {
-            _logger?.LogTrace("Successfully parsed location: '{Location}' for Notice ID: {NoticeId}", result, Id);
+            _logger?.LogTrace("Successfully parsed location: '{Location}' for ANR Notice ID: {NoticeId}", result, Id);
         }
 
         return result;
@@ -235,14 +237,14 @@ public class Notice
     }
 
     /// <summary>
-    /// Extracts curtailment volume from the FullText.
+    /// ANR-specific: Extracts curtailment volume from the FullText.
     /// </summary>
     private decimal? ParseCurtailmentVolume()
     {
         if (string.IsNullOrWhiteSpace(FullText))
             return null;
 
-        _logger?.LogTrace("Starting curtailment volume parsing for Notice ID: {NoticeId}", Id);
+        _logger?.LogTrace("Starting ANR curtailment volume parsing for Notice ID: {NoticeId}", Id);
 
         decimal? result = null;
 
@@ -275,15 +277,16 @@ public class Notice
         foreach (Match match in generalMatches)
         {
             // Get the context around the match to check for remaining capacity or reduction amounts
-            var context = FullText.Substring(Math.Max(0, match.Index - 20), 
+            var context = FullText.Substring(Math.Max(0, match.Index - 20),
                 Math.Min(FullText.Length - Math.Max(0, match.Index - 20), match.Length + 40));
-            
+
             // Skip if this is part of a "leaving X MMcf/d" pattern (remaining capacity)
             if (Regex.IsMatch(context, @"leaving\s+\d+(?:\.\d+)?\s*MMcf/d", RegexOptions.IgnoreCase))
                 continue;
-                
+
             // Skip if this is part of a "reduced by X MMcf/d" pattern (reduction amount, not current flow)
-            if (Regex.IsMatch(context, @"(?:reduced\s+by|reduction\s+of)\s+\d+(?:\.\d+)?\s*MMcf/d", RegexOptions.IgnoreCase))
+            if (Regex.IsMatch(context, @"(?:reduced\s+by|reduction\s+of)\s+\d+(?:\.\d+)?\s*MMcf/d",
+                    RegexOptions.IgnoreCase))
                 continue;
 
             // If we get here, we have a valid MMcf/d volume
@@ -300,15 +303,17 @@ public class Notice
         ParseComplete:
         if (result == null)
         {
-            _logger?.LogTrace("No curtailment volume found for Notice ID: {NoticeId}", Id);
+            _logger?.LogTrace("No curtailment volume found for ANR Notice ID: {NoticeId}", Id);
             return null;
         }
 
         // Convert MMcf/d to MMBtu/d (approximation for natural gas)
-        // 1 MMcf ≈ 1.037 MMBtu for typical pipeline-quality natural gas.
-        var volumeInMmbtu = result.Value * 1.037m;
+        // 1 MMcf = 1.038 MMBtu for typical pipeline-quality natural gas.
+        // https://www.eia.gov/tools/faqs/faq.php?id=45&t=8
+        var volumeInMmbtu = result.Value * 1.038m;
 
-        _logger?.LogTrace("Successfully parsed curtailment volume: {Volume} MMcf/d ({VolumeMmbtu} MMbtu/d) for Notice ID: {NoticeId}", 
+        _logger?.LogTrace(
+            "Successfully parsed curtailment volume: {Volume} MMcf/d ({VolumeMmbtu} MMbtu/d) for ANR Notice ID: {NoticeId}",
             result.Value, volumeInMmbtu, Id);
 
         return volumeInMmbtu;

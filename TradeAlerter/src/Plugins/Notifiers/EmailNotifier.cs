@@ -5,7 +5,7 @@ namespace TradeAlerter.Plugins.Notifiers;
 
 public class EmailNotifier : INotifier
 {
-    public Task NotifyAsync(Notice notice)
+    public Task NotifyAsync(INotice notice)
     {
         throw new NotImplementedException();
     }

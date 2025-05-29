@@ -1,9 +1,8 @@
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using TradeAlerter.Plugins.Scrapers;
-using System;
+using TradeAlerter.Domain.Scraping;
 using System.Diagnostics;
-using System.IO;
 
 namespace TradeAlerter.Host;
 
@@ -11,29 +10,34 @@ public class Program
 {
     public static async Task Main(string[] args)
     {
-        var configuration = new ConfigurationBuilder()
-            .SetBasePath(Directory.GetCurrentDirectory())
-            .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
-            .AddEnvironmentVariables()
-            .Build();
+        var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(args);
 
-        var loggerFactory = LoggerFactory.Create(builder =>
+        builder.Services.AddTradeAlerterServices(builder.Configuration);
+
+        var host = builder.Build();
+
+        var scraper = host.Services.GetRequiredService<IScraper>();
+        var notices = await scraper.FetchNoticeAsync();
+
+        Debugger.Break();
+    }
+}
+
+public static class ServiceCollectionExtensions
+{
+    public static IServiceCollection AddTradeAlerterServices(this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.Configure<AnrOptions>(options =>
         {
-            builder.AddConsole();
-            builder.AddConfiguration(configuration.GetSection("Logging"));
+            options.BaseUrl = new Uri(configuration["Pipelines:ANR:BaseUrl"] ?? "https://ebb.anrpl.com/Notices/");
+            options.LookbackDays = int.TryParse(configuration["Pipelines:ANR:LookbackDays"], out int days) ? days : 31;
         });
 
-        var logger = loggerFactory.CreateLogger<AnrScraper>();
-        var httpClient = new HttpClient();
+        services.AddHttpClient<AnrScraper>();
 
-        var anrOptions = new AnrOptions
-        {
-            BaseUrl = new Uri(configuration["Pipelines:ANR:BaseUrl"] ?? "https://ebb.anrpl.com"),
-            LookbackDays = int.TryParse(configuration["Pipelines:ANR:LookbackDays"], out int days) ? days : 31
-        };
+        services.AddTransient<IScraper, AnrScraper>();
 
-        var scraper = new AnrScraper(anrOptions, httpClient, logger);
-        var notices = await scraper.FetchNoticeAsync();
-        Debugger.Break();
+        return services;
     }
 }

@@ -1,11 +1,8 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-
 namespace TradeAlerter.Domain.Utilities;
 
 /// <summary>
-/// One-time builder for the ANR Location index.
+/// One-time builder for the ANR Location index located at the checked in AnrLocationData.csv
+/// provided by ANR
 /// </summary>
 internal static class AnrCsvLocationSet
 {

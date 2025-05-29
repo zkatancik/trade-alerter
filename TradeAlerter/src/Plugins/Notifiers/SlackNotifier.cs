@@ -5,7 +5,7 @@ namespace TradeAlerter.Plugins.Notifiers;
 
 public class SlackNotifier : INotifier
 {
-    public Task NotifyAsync(Notice notice)
+    public Task NotifyAsync(INotice notice)
     {
         throw new NotImplementedException();
     }
