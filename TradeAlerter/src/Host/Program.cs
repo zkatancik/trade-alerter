@@ -55,8 +55,6 @@ public static class Program
         {
             Console.WriteLine("No email sent - no relevant notices found.");
         }
-
-        Debugger.Break();
     }
 }
 
