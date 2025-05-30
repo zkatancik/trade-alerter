@@ -3,6 +3,7 @@ using TradeAlerter.Domain.Scraping;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using HtmlAgilityPack;
+using TradeAlerter.Plugins.Notices;
 
 namespace TradeAlerter.Plugins.Scrapers;
 

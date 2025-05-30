@@ -1,8 +1,9 @@
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
-using TradeAlerter.Domain.Utilities;
+using TradeAlerter.Domain.Models;
+using TradeAlerter.Plugins.Utilities;
 
-namespace TradeAlerter.Domain.Models;
+namespace TradeAlerter.Plugins.Notices;
 
 public class AnrNotice : INotice
 {

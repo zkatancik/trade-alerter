@@ -1,4 +1,4 @@
-namespace TradeAlerter.Domain.Utilities;
+namespace TradeAlerter.Plugins.Utilities;
 
 /// <summary>
 /// One-time builder for the ANR Location index located at the checked in AnrLocationData.csv
@@ -6,7 +6,7 @@ namespace TradeAlerter.Domain.Utilities;
 /// </summary>
 internal static class AnrCsvLocationSet
 {
-    private const string CsvPath = "../../../AnrLocationData.csv";
+    private static readonly string CsvPath = Path.GetFullPath("../../../AnrLocationData.csv");
 
     private static readonly Lazy<HashSet<string>> _names = new(() =>
     {
