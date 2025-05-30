@@ -98,7 +98,7 @@ Update the `SmtpServer` and `SmtpPort` in `appsettings.json` according to your p
 Currently supports ANR pipeline with configurable parameters:
 
 - `BaseUrl`: Link to the table view "Notice Search" page that shows all notices. Currently pretty locked to: https://ebb.anrpl.com/Notices/NoticesSearch.asp?sPipelineCode=ANR
-- `LookbackDays`: Number of days back in time to scan for notices (default: 31)
+- `LookbackDays`: Number of days back in time to scan for notices (default: 31, currently configured to 14)
 
 ### Trading Signal Detection Rules
 
@@ -122,7 +122,7 @@ For production use, we can schedule the application to run at regular intervals 
    ```bash
    crontab -e
 
-   # Add entry (runs every 15 minutes, 6 AM - 6 PM, Monday-Friday CST)
+   # Add entry (runs every 15 minutes, 6 AM - 6 PM, Monday-Friday MachineTime)
    */15 6-18 * * 1-5 cd /path/to/TradeAlerter && dotnet run
    ```
 
@@ -166,9 +166,11 @@ The application follows a layered architecture pattern with clear separation of 
 
 #### Domain Models
 
-- `INotice`: Core abstraction for pipeline notices with trading signal detection logic in isRelevant
+- `INotice`: Core abstraction for pipeline notices with trading signal detection logic in isRelevant. Includes the minimum logic that should be in all Notices.
 - `Pipeline`: Enumeration of supported pipelines
 - `NoticeType`: Enumeration of notice types (Critical, Maintenance, etc.)
+- `IScraper`: Basic abstraction to be implemented by all scrapers.
+- `INotifier`: Basic abstraction to be implmeneted by all notifiers.
 
 #### Scrapers (ANR Scraper Implementation)
 
