@@ -6,6 +6,6 @@ public enum Pipeline
     ColumbiaGulf,
     CreoleTrail,
     NGPL,
-    SabinePipeline,
+    Sabine,
     TETCO,
 }

@@ -8,53 +8,54 @@ using System.Text;
 
 namespace TradeAlerter.Plugins.Notifiers;
 
-public class EmailNotifier : INotifier
+public sealed class EmailOptions
 {
-    private readonly EmailOptions _options;
-    private readonly ILogger<EmailNotifier> _logger;
+    public string SmtpServer { get; set; } = string.Empty;
+    public int SmtpPort { get; set; } = 587;
+    public bool EnableSsl { get; set; } = true;
+    public string Username { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
+    public string FromEmail { get; set; } = string.Empty;
+    public string ToEmail { get; set; } = string.Empty;
+}
 
-    public EmailNotifier(IOptions<EmailOptions> options, ILogger<EmailNotifier> logger)
-    {
-        _options = options.Value;
-        _logger = logger;
-    }
+public class EmailNotifier(IOptions<EmailOptions> options, ILogger<EmailNotifier> logger)
+    : INotifier
+{
+    private readonly EmailOptions _options = options.Value;
 
     public async Task NotifyAsync(IReadOnlyList<INotice> relevantNotices)
     {
         if (!relevantNotices.Any())
         {
-            _logger.LogInformation("No relevant notices to send via email");
+            logger.LogInformation("No relevant notices to send via email");
             return;
         }
 
-        _logger.LogTrace("Preparing to send email notification for {NoticeCount} relevant notice(s)", relevantNotices.Count);
+        logger.LogTrace("Preparing to send email notification for {NoticeCount} relevant notice(s)", relevantNotices.Count);
 
         var subject = $"Trading Alert: {relevantNotices.Count} Pipeline Notice{(relevantNotices.Count > 1 ? "s" : "")} Detected";
         var body = BuildEmailBody(relevantNotices);
 
         try
         {
-            using var smtpClient = new SmtpClient(_options.SmtpServer, _options.SmtpPort)
-            {
-                EnableSsl = _options.EnableSsl,
-                Credentials = new NetworkCredential(_options.Username, _options.Password)
-            };
+            using var smtpClient = new SmtpClient(_options.SmtpServer, _options.SmtpPort);
+            smtpClient.EnableSsl = _options.EnableSsl;
+            smtpClient.Credentials = new NetworkCredential(_options.Username, _options.Password);
 
-            using var message = new MailMessage(_options.FromEmail, _options.ToEmail, subject, body)
-            {
-                IsBodyHtml = false
-            };
+            using var message = new MailMessage(_options.FromEmail, _options.ToEmail, subject, body);
+            message.IsBodyHtml = false;
 
-            _logger.LogTrace("Sending email from {FromEmail} to {ToEmail} via {SmtpServer}:{SmtpPort}", 
+            logger.LogTrace("Sending email from {FromEmail} to {ToEmail} via {SmtpServer}:{SmtpPort}", 
                 _options.FromEmail, _options.ToEmail, _options.SmtpServer, _options.SmtpPort);
 
             await smtpClient.SendMailAsync(message);
             
-            _logger.LogInformation("Email notification sent successfully for {NoticeCount} notice(s)", relevantNotices.Count);
+            logger.LogInformation("Email notification sent successfully for {NoticeCount} notice(s)", relevantNotices.Count);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to send email notification for {NoticeCount} notice(s). SMTP Server: {SmtpServer}, From: {FromEmail}, To: {ToEmail}", 
+            logger.LogError(ex, "Failed to send email notification for {NoticeCount} notice(s). SMTP Server: {SmtpServer}, From: {FromEmail}, To: {ToEmail}", 
                 relevantNotices.Count, _options.SmtpServer, _options.FromEmail, _options.ToEmail);
             throw;
         }
@@ -62,7 +63,7 @@ public class EmailNotifier : INotifier
 
     private string BuildEmailBody(IReadOnlyList<INotice> notices)
     {
-        _logger.LogTrace("Building email body for {NoticeCount} notice(s)", notices.Count);
+        logger.LogTrace("Building email body for {NoticeCount} notice(s)", notices.Count);
         
         var sb = new StringBuilder();
         sb.AppendLine("TRADING ALERT - Pipeline Curtailment Notices");
@@ -91,15 +92,4 @@ public class EmailNotifier : INotifier
         sb.AppendLine("This is an automated alert from the TradeAlerter system.");
         return sb.ToString();
     }
-}
-
-public class EmailOptions
-{
-    public string SmtpServer { get; set; } = string.Empty;
-    public int SmtpPort { get; set; } = 587;
-    public bool EnableSsl { get; set; } = true;
-    public string Username { get; set; } = string.Empty;
-    public string Password { get; set; } = string.Empty;
-    public string FromEmail { get; set; } = string.Empty;
-    public string ToEmail { get; set; } = string.Empty;
 }

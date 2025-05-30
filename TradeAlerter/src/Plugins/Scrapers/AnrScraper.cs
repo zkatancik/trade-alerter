@@ -13,11 +13,10 @@ public sealed class AnrOptions
     public int LookbackDays { get; set; } = 31;
 }
 
-public class AnrScraper : IScraper
+public class AnrScraper(IOptions<AnrOptions> options, HttpClient httpClient, ILogger<AnrScraper> logger)
+    : IScraper
 {
-    private readonly AnrOptions _options;
-    private readonly HttpClient _httpClient;
-    private readonly ILogger<AnrScraper> _logger;
+    private readonly AnrOptions _options = options.Value;
 
     private static readonly Dictionary<string, NoticeType> NoticeTypeMap =
         new(StringComparer.OrdinalIgnoreCase)
@@ -54,13 +53,6 @@ public class AnrScraper : IScraper
             ["Weather"] = NoticeType.Informational
         };
 
-    public AnrScraper(IOptions<AnrOptions> options, HttpClient httpClient, ILogger<AnrScraper> logger)
-    {
-        _options = options.Value;
-        _httpClient = httpClient;
-        _logger = logger;
-    }
-
     /// <summary>
     /// Scrapes the search-results table at
     /// https://ebb.anrpl.com/Notices/NoticesSearch.asp?sPipelineCode=ANR.
@@ -91,7 +83,7 @@ public class AnrScraper : IScraper
             var formContent = new FormUrlEncodedContent(formData);
 
             // POST to the search endpoint
-            var response = await _httpClient.PostAsync(
+            var response = await httpClient.PostAsync(
                 $"{_options.BaseUrl}NoticesSearch.asp?sPipelineCode=ANR",
                 formContent);
 
@@ -133,13 +125,13 @@ public class AnrScraper : IScraper
                             }
                             catch (Exception ex)
                             {
-                                _logger.LogWarning(ex, "Failed to parse notice ID from details page.");
+                                logger.LogWarning(ex, "Failed to parse notice ID from details page.");
                             }
 
                             notice.Type = ParseNoticeTypeFromDetails(noticeDoc);
                             notice.Summary = ExtractCellValue(noticeDoc, "Subject") ?? string.Empty;
                             notice.FullText = ExtractCellValue(noticeDoc, "Notice Text") ?? string.Empty;
-                            notice.ParseTextDetails(_logger);
+                            notice.ParseTextDetails(logger);
 
                             try
                             {
@@ -149,7 +141,7 @@ public class AnrScraper : IScraper
                             }
                             catch (Exception ex)
                             {
-                                _logger.LogWarning(ex, "Failed to parse posting date/time from details page.");
+                                logger.LogWarning(ex, "Failed to parse posting date/time from details page.");
                             }
                         }
 
@@ -157,12 +149,12 @@ public class AnrScraper : IScraper
                     }
                     else
                     {
-                        _logger.LogError("Failed to extract notice details link from row: {row}", row);
+                        logger.LogError("Failed to extract notice details link from row: {row}", row);
                     }
                 }
                 else
                 {
-                    _logger.LogError("Failed to extract href from row: {row}", row);
+                    logger.LogError("Failed to extract href from row: {row}", row);
                 }
             }
 
@@ -170,7 +162,7 @@ public class AnrScraper : IScraper
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to fetch notices from ANR pipeline");
+            logger.LogError(ex, "Failed to fetch notices from ANR pipeline");
             throw;
         }
     }
@@ -185,22 +177,22 @@ public class AnrScraper : IScraper
         var detailUrlString = detailsUrl.ToString();
         try
         {
-            _logger.LogTrace("Fetching notice details from: {DetailUrlString}", detailUrlString);
+            logger.LogTrace("Fetching notice details from: {DetailUrlString}", detailUrlString);
 
-            var response = await _httpClient.GetAsync(detailUrlString);
+            var response = await httpClient.GetAsync(detailUrlString);
             response.EnsureSuccessStatusCode();
 
             var html = await response.Content.ReadAsStringAsync();
             var doc = new HtmlDocument();
             doc.LoadHtml(html);
 
-            _logger.LogTrace("Successfully fetched details from: {DetailUrlString}", detailUrlString);
+            logger.LogTrace("Successfully fetched details from: {DetailUrlString}", detailUrlString);
 
             return doc;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, $"Failed to fetch details from: {detailUrlString}");
+            logger.LogWarning(ex, $"Failed to fetch details from: {detailUrlString}");
             return null;
         }
     }
@@ -223,15 +215,15 @@ public class AnrScraper : IScraper
 
             if (value == null)
             {
-                _logger.LogInformation("Extracted null value for {Category} from details page.", category);
+                logger.LogInformation("Extracted null value for {Category} from details page.", category);
             }
 
-            _logger.LogTrace("Extracted value for {Category}: {Value}", category, value);
+            logger.LogTrace("Extracted value for {Category}: {Value}", category, value);
             return value;
         }
         catch
         {
-            _logger.LogWarning("Unable to extract value for {Category} from details page.", category);
+            logger.LogWarning("Unable to extract value for {Category} from details page.", category);
             return null;
         }
     }
@@ -250,7 +242,7 @@ public class AnrScraper : IScraper
             var noticeTypeText = ExtractCellValue(doc, "Notice Type Desc");
             if (!string.IsNullOrEmpty(noticeTypeText))
             {
-                _logger.LogTrace("Found notice type: {NoticeType}", noticeTypeText);
+                logger.LogTrace("Found notice type: {NoticeType}", noticeTypeText);
 
                 if (NoticeTypeMap.TryGetValue(noticeTypeText, out var noticeType))
                 {
@@ -258,18 +250,18 @@ public class AnrScraper : IScraper
                 }
                 else
                 {
-                    _logger.LogWarning("Unknown notice type: {NoticeType}. Defaulting to Informational.",
+                    logger.LogWarning("Unknown notice type: {NoticeType}. Defaulting to Informational.",
                         noticeTypeText);
                 }
             }
             else
             {
-                _logger.LogError("Could not find Notice Type Desc in the HTML document. Defaulting to Informational.");
+                logger.LogError("Could not find Notice Type Desc in the HTML document. Defaulting to Informational.");
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error parsing notice type from HTML document. Defaulting to Informational.");
+            logger.LogError(ex, "Error parsing notice type from HTML document. Defaulting to Informational.");
         }
 
         return result;
