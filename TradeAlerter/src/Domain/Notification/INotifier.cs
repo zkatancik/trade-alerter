@@ -4,5 +4,5 @@ namespace TradeAlerter.Domain.Notification;
 
 public interface INotifier
 {
-    Task NotifyAsync(INotice notice);
+    Task NotifyAsync(IReadOnlyList<INotice> relavantNotices);
 }

@@ -2,7 +2,10 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using TradeAlerter.Plugins.Scrapers;
 using TradeAlerter.Domain.Scraping;
+using TradeAlerter.Domain.Notification;
+using TradeAlerter.Plugins.Notifiers;
 using System.Diagnostics;
+using DotNetEnv;
 
 namespace TradeAlerter.Host;
 
@@ -10,7 +13,8 @@ public class Program
 {
     public static async Task Main(string[] args)
     {
-        // adding an example of adding another scraper in the DI framework
+        Env.Load();
+        
         var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(args);
 
         builder.Services.AddTradeAlerterServices(builder.Configuration);
@@ -18,10 +22,20 @@ public class Program
         var host = builder.Build();
 
         var anrScraper = host.Services.GetRequiredKeyedService<IScraper>("ANR");
-        //var otherScraper = host.Services.GetRequiredKeyedService<IScraper>("Other");
-
         var anrNotices = await anrScraper.FetchNoticeAsync();
-        // var otherNotices = await otherScraper.FetchNoticeAsync();
+
+        var emailNotifier = host.Services.GetRequiredService<INotifier>();
+        var relevantNotices = anrNotices.Where(n => n.IsRelevant).ToList();
+        
+        if (relevantNotices.Any())
+        {
+            await emailNotifier.NotifyAsync(relevantNotices);
+            Console.WriteLine($"Sent email notification for {relevantNotices.Count} relevant notice(s).");
+        }
+        else
+        {
+            Console.WriteLine("No relevant notices found.");
+        }
 
         Debugger.Break();
     }
@@ -29,7 +43,7 @@ public class Program
 
 public static class ServiceCollectionExtensions
 {
-    public static IServiceCollection AddTradeAlerterServices(this IServiceCollection services,
+    public static void AddTradeAlerterServices(this IServiceCollection services,
         IConfiguration configuration)
     {
         services.Configure<AnrOptions>(options =>
@@ -38,12 +52,22 @@ public static class ServiceCollectionExtensions
             options.LookbackDays = int.TryParse(configuration["Pipelines:ANR:LookbackDays"], out int days) ? days : 31;
         });
 
+        services.Configure<EmailOptions>(options =>
+        {
+            configuration.GetSection("Email").Bind(options);
+            
+            var username = Environment.GetEnvironmentVariable("EMAIL_USERNAME");
+            var password = Environment.GetEnvironmentVariable("EMAIL_PASSWORD");
+            
+            if (!string.IsNullOrEmpty(username))
+                options.Username = username;
+            
+            if (!string.IsNullOrEmpty(password))
+                options.Password = password;
+        });
+
         services.AddHttpClient<AnrScraper>();
-        // services.AddHttpClient<OtherScraper>();
-
         services.AddKeyedTransient<IScraper, AnrScraper>("ANR");
-        //services.AddKeyedTransient<IScraper, OtherScraper>("Other");
-
-        return services;
+        services.AddTransient<INotifier, EmailNotifier>();
     }
 }

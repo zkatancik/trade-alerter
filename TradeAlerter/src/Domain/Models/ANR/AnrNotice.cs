@@ -61,7 +61,7 @@ public class AnrNotice : INotice
             if (hasRelevantKeywords)
                 return true;
 
-            // ANR-specific: https://en.wikipedia.org/wiki/Henry_Hub
+            // https://en.wikipedia.org/wiki/Henry_Hub
             var locationMentions = new[]
             {
                 "louisiana",
@@ -104,7 +104,7 @@ public class AnrNotice : INotice
     }
 
     /// <summary>
-    /// ANR-specific: Extracts location information from the FullText in order of most likely to parse.
+    /// Extracts location information from the FullText in order of most likely to parse.
     /// </summary>
     private string ParseLocation()
     {
@@ -168,7 +168,7 @@ public class AnrNotice : INotice
             @"Zone\s+\d+",
             @"Point\s+\d+",
             @"Station\s+[A-Za-z0-9\-]+",
-            @"Location\s+[A-Za-z0-9\-]+"
+            @"Location\s+(?:\d+|[A-Za-z0-9\-]{4,})"
         };
         foreach (var pattern in structuredPatterns)
         {
@@ -237,7 +237,7 @@ public class AnrNotice : INotice
     }
 
     /// <summary>
-    /// ANR-specific: Extracts curtailment volume from the FullText.
+    /// Extracts curtailment volume from the FullText.
     /// </summary>
     private decimal? ParseCurtailmentVolume()
     {
