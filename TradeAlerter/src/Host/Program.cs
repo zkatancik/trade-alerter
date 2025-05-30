@@ -6,6 +6,7 @@ using TradeAlerter.Domain.Notification;
 using TradeAlerter.Plugins.Notifiers;
 using System.Diagnostics;
 using DotNetEnv;
+using Microsoft.Extensions.Options;
 
 namespace TradeAlerter.Host;
 
@@ -13,6 +14,7 @@ public class Program
 {
     public static async Task Main(string[] args)
     {
+        Console.WriteLine("Grabbing Configuration.");
         Env.Load();
         
         var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(args);
@@ -22,19 +24,36 @@ public class Program
         var host = builder.Build();
 
         var anrScraper = host.Services.GetRequiredKeyedService<IScraper>("ANR");
-        var anrNotices = await anrScraper.FetchNoticeAsync();
-
+        
+        Console.Write("Checking ANR Pipeline for new alerts");
+        
+        var scrapingTask = anrScraper.FetchNoticeAsync();
+        while (!scrapingTask.IsCompleted)
+        {
+            Console.Write(".");
+            await Task.Delay(500);
+        }
+        
+        var anrNotices = await scrapingTask;
+        Console.WriteLine();
+        Console.WriteLine($"Found {anrNotices.Count} ANR Pipeline notices.");
+        
         var emailNotifier = host.Services.GetRequiredService<INotifier>();
         var relevantNotices = anrNotices.Where(n => n.IsRelevant).ToList();
         
+        Console.WriteLine($"{relevantNotices.Count} trading signal(s) detected.");
+        
         if (relevantNotices.Any())
         {
+            // Get email configuration to console log toEmail
+            var emailOptions = host.Services.GetRequiredService<IOptions<EmailOptions>>().Value;
+            
             await emailNotifier.NotifyAsync(relevantNotices);
-            Console.WriteLine($"Sent email notification for {relevantNotices.Count} relevant notice(s).");
+            Console.WriteLine($"Sent email to: {emailOptions.ToEmail}");
         }
         else
         {
-            Console.WriteLine("No relevant notices found.");
+            Console.WriteLine("No email sent - no relevant notices found.");
         }
 
         Debugger.Break();
